@@ -1,0 +1,6 @@
+si SWD
+speed 500
+device HC32F460JETA
+connect
+mem32 0x0, 8
+exit

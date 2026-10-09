@@ -1,0 +1,38 @@
+{
+	"nodes":[
+		{"id":"n_start","type":"text","text":"## 慢块 A：配置参数存储\n**44B 记录 | sec 62→61（0x7A000~0x7FFFF，2×8KB）**\n\n存 g_volt_cfg / g_cur_cfg：过压/欠压阈值、迟滞回差、恢复延时、过流阈值(mA)、判定窗口(ms)\n\n追加次数：8192/44 ≈ **186 次/擦/扇区**\n擦寿命：1 万次/扇区（MAX_ERASE_LIFE）\n总保存寿命：186 万 × 2 扇区","x":-560,"y":0,"width":420,"height":230,"color":"4"},
+		{"id":"n_scan","type":"text","text":"### 上电：Dev_Param_Init（main，App_Model_Init 之前）\n从 sec 62 向 61 逐扇区扫描：\n头魔数 0x55AA55AA + 尾魔数 0xAA44AA44 + 软件 CRC32 全通过 = 有效块\n（扫描缓冲 256B 上限，编译期断言保护）","x":-560,"y":310,"width":420,"height":200},
+		{"id":"n_valid","type":"text","text":"### 找到有效块？","x":-560,"y":590,"width":420,"height":100,"color":"3"},
+		{"id":"n_load","type":"text","text":"### 加载\n取 **seq 最大**的一块（回滚扫描：跨扇区选最新）\n→ Param_ApplyToDevices()：写入 g_volt_cfg / g_cur_cfg\n打印 [PARAM] loaded: ... seq=N","x":-560,"y":770,"width":420,"height":170,"color":"4"},
+		{"id":"n_dft","type":"text","text":"### 首次上电：写默认值\nVOL_OVER_TH_DFT / VOL_UNDER_TH_DFT / VOL_HYST_DFT /\nVOL_RECOVER_DELAY_MS_DFT / CUR_OVER_CUR_TH_MA_DFT / CUR_OVER_WINDOW_MS_DFT\n写入 sec 62 起始，打印 [PARAM] defaults set","x":-80,"y":770,"width":420,"height":190},
+		{"id":"n_entry","type":"text","text":"## 保存：Dev_Param_Save()\n入口：msh `param_save` / 主循环 savelabel=1\n编排角色：dev_param.c 兼 A+B 调度（Init/EraseAll/show）","x":200,"y":0,"width":440,"height":160,"color":"4"},
+		{"id":"n_run","type":"text","text":"### 电机运行中？\n（任一仲裁轴 MS_RUNNING）","x":200,"y":240,"width":440,"height":110,"color":"3"},
+		{"id":"n_refuse","type":"text","text":"### 拒绝保存\n擦/写期间 BUS_HOLD 全系统停顿，1ms 电源检测链丢样本","x":760,"y":240,"width":400,"height":110,"color":"2"},
+		{"id":"n_sync","type":"text","text":"### 同步 + 打包\ng_volt_cfg / g_cur_cfg → ParamRecord_t\nsequence_id +1 → 软件 CRC32 重算（CRC-32/ISO-HDLC，覆盖 checksum 前全部字段）\n临界区：rt_hw_interrupt_disable/enable","x":200,"y":430,"width":440,"height":180},
+		{"id":"n_append","type":"text","text":"### 追加写\nEFM 解锁（REG_Unlock→FWMC_Cmd→BUS_HOLD）\n顺序写 44B 到 curr_addr → 解锁恢复\n写字失败 → 最多重试 7 次，指针前移跳坏点","x":200,"y":690,"width":440,"height":180},
+		{"id":"n_over","type":"text","text":"### 扇区溢出？\ncurr_addr + 44 > 扇区尾","x":200,"y":950,"width":440,"height":110,"color":"3"},
+		{"id":"n_life","type":"text","text":"### 磨损判断\nerase_count < 10000 ？","x":200,"y":1140,"width":440,"height":110,"color":"3"},
+		{"id":"n_same","type":"text","text":"### 原地擦除重写\n擦当前扇区 → 从扇区头重写\nerase_count + 1","x":200,"y":1330,"width":440,"height":150},
+		{"id":"n_switch","type":"text","text":"### 换下一扇区（磨损尽）\nsec 倒序：62 → 61，61 用尽回卷 62\n擦新扇区 → 从头写 → **erase_count 重置 1**","x":200,"y":1560,"width":440,"height":170,"color":"4"},
+		{"id":"n_done","type":"text","text":"### 完成\nseq 递增持久化，写地址前移 44B\n打印 [PARAM] save OK","x":200,"y":1810,"width":440,"height":120},
+		{"id":"n_dbg","type":"text","text":"### 调试 / 测试手段\nmsh：`param_show`（A+B 状态）/ `param_save` / `param_erase`（A+B 全擦）\nsavelabel=1 存一组（over_th +0.5V 回绕 [23,27)）/ savelabel=2 填满扇区\n**磨损换扇区模拟**：溢出边缘 + debug 改 g_param_record.erase_count=10000 → savelabel=1 → 地址跳 sec 61（0x7A000）\n复位验证：[PARAM] loaded 应显示最大 seq","x":200,"y":2010,"width":440,"height":240}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n_start","fromSide":"bottom","toNode":"n_scan","toSide":"top"},
+		{"id":"e2","fromNode":"n_scan","fromSide":"bottom","toNode":"n_valid","toSide":"top"},
+		{"id":"e3","fromNode":"n_valid","fromSide":"bottom","toNode":"n_load","toSide":"top","label":"是"},
+		{"id":"e4","fromNode":"n_valid","fromSide":"right","toNode":"n_dft","toSide":"left","label":"否（首次）"},
+		{"id":"e5","fromNode":"n_entry","fromSide":"bottom","toNode":"n_run","toSide":"top"},
+		{"id":"e6","fromNode":"n_run","fromSide":"right","toNode":"n_refuse","toSide":"left","label":"运行中","color":"2"},
+		{"id":"e7","fromNode":"n_run","fromSide":"bottom","toNode":"n_sync","toSide":"top","label":"已停止"},
+		{"id":"e8","fromNode":"n_sync","fromSide":"bottom","toNode":"n_append","toSide":"top"},
+		{"id":"e9","fromNode":"n_append","fromSide":"bottom","toNode":"n_over","toSide":"top"},
+		{"id":"e10","fromNode":"n_append","fromSide":"right","toNode":"n_refuse","toSide":"bottom","label":"写失败重试×7","color":"2"},
+		{"id":"e11","fromNode":"n_over","fromSide":"right","toNode":"n_life","toSide":"left","label":"是"},
+		{"id":"e12","fromNode":"n_over","fromSide":"bottom","toNode":"n_done","toSide":"top","label":"否（正常追加）"},
+		{"id":"e13","fromNode":"n_life","fromSide":"bottom","toNode":"n_same","toSide":"top","label":"是"},
+		{"id":"e14","fromNode":"n_life","fromSide":"right","toNode":"n_switch","toSide":"left","label":"否（寿命尽）","color":"4"},
+		{"id":"e15","fromNode":"n_same","fromSide":"bottom","toNode":"n_done","toSide":"left"},
+		{"id":"e16","fromNode":"n_switch","fromSide":"bottom","toNode":"n_done","toSide":"right"}
+	]
+}

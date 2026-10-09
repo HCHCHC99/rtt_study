@@ -1,0 +1,37 @@
+{
+	"nodes":[
+		{"id":"r1","type":"text","text":"### 上电 Param_Init（B 块扫描）\n逐块 magic + CRC32 校验，取 seq 最大者加载到 s_rod_record","x":0,"y":0,"width":400,"height":130,"color":"3"},
+		{"id":"r2","type":"text","text":"### 有有效记录？\n**无** → SetDefaults（position=**0**，走首次校准）+ **默认落盘**（引擎行为，写入 seq=1）\n**有** → 直接加载","x":0,"y":180,"width":400,"height":170,"color":"3"},
+		{"id":"r3","type":"text","text":"### Dev_Param_RodApply 三道门\n① 校准窗口 a~d(2/2/86/86) + stop_margin(0.4) 写入 + **机械参数 SetParams（stroke=88/ratio=1183/pulses=12/lead=360，A 块值覆盖 DFT 初值）**（无论恢复与否都必做）\n② defaults_written → skip（本机刚 defaults）\n③ **seq<=1 → skip**（默认落盘记录，防假校准）\n④ 通过 → position 恢复 + **CALIBRATED**","x":0,"y":400,"width":400,"height":260,"color":"3"},
+
+		{"id":"s1","type":"text","text":"### 欠压（1ms ISR）\nEVT_SYS_VOLT_UNDER","x":480,"y":0,"width":400,"height":110,"color":"4"},
+		{"id":"s2","type":"text","text":"### dispatch：SeenValid 门控\n=0（3.3V 调试无母线）→ 不请求\n=1（真实掉电）→ RodSaveRequest（幂等）","x":480,"y":160,"width":400,"height":160,"color":"4"},
+		{"id":"s3","type":"text","text":"### PollSave（rod_task 10ms 驱动）\n2 tick ≈ 20ms 等刹车滑行稳定\n**校准门：未校准 → skip**（防假基准落盘）★新增\n并发：先消费 calib_req 再保存 → 存的是校准值","x":480,"y":370,"width":400,"height":220,"color":"4"},
+		{"id":"s4","type":"text","text":"### Dev_Param_RodSave 写 B 块\n扇区 60→51，24B 追加写，seq+1\n时间预算 ≈30ms << 电容余量 ≈270ms","x":480,"y":640,"width":400,"height":150,"color":"4"},
+
+		{"id":"c1","type":"text","text":"### 未校准状态\nposition_mm=0 假基准（随霍尔累加漂移，**无物理意义**，不参与任何决策）","x":960,"y":0,"width":400,"height":130,"color":"5"},
+		{"id":"c2","type":"text","text":"### 首次过流 RodCalib_OnOverCurrent\n!IsCalibrated 或位置在窗口内 → 软限位校准（非故障）\n按仲裁方向：**FWD → REQ_MAX / REV → REQ_MIN**\n已校准 + 窗口外 → 异物卡住真故障 → EMERGENCY","x":960,"y":180,"width":400,"height":200,"color":"5"},
+		{"id":"c3","type":"text","text":"### rod_task 消费 calib_req【转动模式：单位=度】\nREV: position = **0** + CALIBRATED（顶到下限，窗口 pos≤2°）\nFWD: position = **stroke(88)** + CALIBRATED（顶到上限，窗口 pos≥86°）\n（无条件赋值，过流前漂移值被完全丢弃）","x":960,"y":430,"width":400,"height":190,"color":"5"},
+		{"id":"c4","type":"text","text":"### 校准不落盘（现状设计）\n需一次真实掉电（欠压保存）才持久化\n中途复位 → 回未校准态重新走校准流程","x":960,"y":670,"width":400,"height":160,"color":"5"},
+
+		{"id":"q1","type":"text","text":"### B 块 sequence_id 语义（防护闭环）\n**seq=1** = Param_Init 默认落盘（假记录）↔ 恢复层 seq<=1 拒绝 ★\n**seq≥2** = 真实欠压保存（写入时必已校准）↔ 恢复层放行\n→ Flash 里 seq≥2 记录必然来自已校准时刻，恢复置 CALIBRATED 才有依据","x":0,"y":880,"width":880,"height":190,"color":"1"},
+		{"id":"t1","type":"text","text":"### 测试速查（全片擦除后）\n① 首上电+3.3V: `defaults set` → `apply skipped (no valid block)`\n② 再上电: `apply skipped (default-fill record seq=1)`\n③ 未校准+真实掉电: `save skipped: position NOT calibrated`\n④ REV 关窗到底过流（pos≤2°）: `calib req MIN` → 0° + CALIBRATED\n⑤ 校准后掉电: `saved seq=2` → 再上电 `restored (CALIBRATED)`\n⚠ A 块布局已变更，升级固件后须 param_erase","x":960,"y":880,"width":400,"height":250,"color":"6"}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"r1","fromSide":"bottom","toNode":"r2","toSide":"top"},
+		{"id":"e2","fromNode":"r2","fromSide":"bottom","toNode":"r3","toSide":"top","label":"无有效块→defaults / 有→加载"},
+
+		{"id":"e3","fromNode":"s1","fromSide":"bottom","toNode":"s2","toSide":"top"},
+		{"id":"e4","fromNode":"s2","fromSide":"bottom","toNode":"s3","toSide":"top","label":"SaveRequest"},
+		{"id":"e5","fromNode":"s3","fromSide":"bottom","toNode":"s4","toSide":"top","label":"校准通过"},
+
+		{"id":"e6","fromNode":"c1","fromSide":"bottom","toNode":"c2","toSide":"top"},
+		{"id":"e7","fromNode":"c2","fromSide":"bottom","toNode":"c3","toSide":"top","label":"calib_req"},
+		{"id":"e8","fromNode":"c3","fromSide":"bottom","toNode":"c4","toSide":"top"},
+
+		{"id":"e9","fromNode":"s4","fromSide":"left","toNode":"r3","toSide":"right","label":"下次上电恢复","color":"4"},
+		{"id":"e10","fromNode":"c3","fromSide":"left","toNode":"s3","toSide":"right","label":"校准状态门控保存","color":"5"},
+		{"id":"e11","fromNode":"c4","fromSide":"left","toNode":"s4","toSide":"right","label":"校准后掉电才落盘","color":"5"},
+		{"id":"e12","fromNode":"s4","fromSide":"bottom","toNode":"q1","toSide":"top","label":"seq 演进"}
+	]
+}

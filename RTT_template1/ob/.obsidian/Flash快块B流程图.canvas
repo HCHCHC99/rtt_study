@@ -1,0 +1,34 @@
+{
+	"nodes":[
+		{"id":"n_start","type":"text","text":"## 快块 B：推杆行程存储\n**24B 记录 | sec 60→51（0x66000~0x79FFF，10×8KB）**\n\n存一个参数：position_mm（推杆当前行程，float）\n头尾 20B（魔数×2 + seq + erase_count + CRC）+ 4B 数据 = 最小完整校验布局\n\n追加次数：8192/24 ≈ **341 次/擦/扇区**\n总保存寿命：341 万 × 10 扇区（每天 100 次欠压 ≈ 93 年/扇区）","x":-220,"y":0,"width":440,"height":250,"color":"4"},
+		{"id":"n_load1","type":"text","text":"### 上电恢复 ①：Dev_Param_RodInit\n（main 的 Dev_Param_Init 内，App_Model_Init 之前）\n扫 sec 60→51：魔数+CRC 有效块取 **seq 最大** → s_rod_record\n打印 [RODP] loaded: stroke=xxx.xmm","x":-220,"y":330,"width":440,"height":180},
+		{"id":"n_load2","type":"text","text":"### 上电恢复 ②：Dev_Param_RodApply\n（App_Model_Init 末尾，RodPosition_Init/SetParams 之后）\n① 写 position_mm = 加载值，置 **CALIBRATED**（霍尔增量在此基准上继续累加）\n② **注入位置实例指针**（欠压保存的取值来源；模块不摸 mySystem）\n打印 [RODP] restored stroke=xxx.xmm (CALIBRATED)","x":-220,"y":590,"width":440,"height":230,"color":"4"},
+		{"id":"n_dft","type":"text","text":"### 首次上电：无有效块\ndefaults 写入 stroke=0.0mm\nApply **跳过恢复**（s_rod_defaults_written）\n保持 NOT_CALIBRATED，走原校准流程","x":300,"y":590,"width":400,"height":190,"color":"3"},
+		{"id":"n_uv","type":"text","text":"## 欠压保存链路\n1ms ISR：欠压窗口确认 → 置事件位\n状态机线程 Sys_State_Dispatch 欠压分支：\n置 error_code / fault_bits / 发 EVT_SYS_VOLT_UNDER\n实测欠压→MCU 不能工作余量 **270ms**","x":-220,"y":900,"width":440,"height":210,"color":"3"},
+		{"id":"n_req","type":"text","text":"### Dev_Param_RodSaveRequest()\n欠压边沿调用，**非阻塞、幂等**\n置内部保存请求（欠压边沿仅存一次，不做周期补存）\nsys_enter_emergency 保持纯净：只刹车，不掺 flash 代码","x":-220,"y":1190,"width":440,"height":190},
+		{"id":"n_brake","type":"text","text":"### sys_enter_emergency\nEVT_ACT_HOLD + EMERGENCY_STOP\n**50/50 动态刹车**（寄存器级，µs 级生效）\n→ 跳 FAULT","x":-220,"y":1460,"width":440,"height":170},
+		{"id":"n_tick","type":"text","text":"### Rod_Task 10ms：Dev_Param_RodPollSave()\n保存状态机（自包含，tick 计数延时 **零线程阻塞**）\n请求后计 2 个 tick ≈ **20ms**（等刹车滑行稳定）\n对比：mdelay 占状态机线程 / rt_timer 回调阻塞软定时器链——均弃用","x":-220,"y":1710,"width":440,"height":210},
+		{"id":"n_write","type":"text","text":"### 写入 Flash\n取当前位置（注入的实例指针 RodPosition_GetCurrent）\nsync → seq+1 → CRC32 → 24B 顺序写\n纯写 ~0.3ms；扇区满含擦 ~8ms（同引擎溢出/磨损逻辑）","x":-220,"y":2000,"width":440,"height":190},
+		{"id":"n_margin","type":"text","text":"### 时序核算\n欠压确认 → 写完 ≈ 20~30ms << **270ms 余量** ✓\n打印 [RODP] saved: stroke=xxx.xmm seq=N addr=0x000780xx\n兜底：写一半掉电 → CRC 失败 → 回滚旧块（最坏丢最后一次）","x":-220,"y":2270,"width":440,"height":180,"color":"4"},
+		{"id":"n_product","type":"text","text":"## 产物\n下次上电自动恢复停车位置为位置基准（CALIBRATED）\n推杆增量记账从该基准继续，绝对位置不丢\n策略自洽：每次掉电前必有欠压事件 → 最后一次欠压保存总是新鲜的","x":-220,"y":2530,"width":440,"height":200,"color":"4"},
+		{"id":"n_note1","type":"text","text":"### ⚠ 固有误差\n保存值略早于最终停住点：刹车滑行段位移未记账\n20ms tick 延时已缩小；增量记账下偏差仅影响初始基准","x":300,"y":2000,"width":400,"height":170,"color":"2"},
+		{"id":"n_note2","type":"text","text":"### ⚠ 只有欠压触发保存\n过流 / 推杆故障 / 手动急停 → 不保存行程\n（用户决策：欠压 = 掉电前兆信号）","x":300,"y":1190,"width":400,"height":150,"color":"2"},
+		{"id":"n_note3","type":"text","text":"### ⚠ 电压恢复后行程偏离\n欠压→恢复 RUN 继续跑后，flash 值是旧的\n下次欠压再刷新——无需额外处理","x":300,"y":900,"width":400,"height":150,"color":"2"},
+		{"id":"n_test","type":"text","text":"### 调试 / 测试手段\nsavelabel=3 存当前行程一组（main 组合 RodSave+取值）\nsavelabel=4 填满 B 扇区（~341 组）\n**磨损换扇区模拟**：填满 + debug 改 s_rod_record.erase_count=10000 → savelabel=3 → 地址跳 0x00076000（sec 59）\n复位验证：[RODP] restored ... (CALIBRATED)","x":300,"y":2530,"width":400,"height":240}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n_start","fromSide":"bottom","toNode":"n_load1","toSide":"top"},
+		{"id":"e2","fromNode":"n_load1","fromSide":"bottom","toNode":"n_load2","toSide":"top"},
+		{"id":"e3","fromNode":"n_load1","fromSide":"right","toNode":"n_dft","toSide":"left","label":"首次无有效块","color":"3"},
+		{"id":"e4","fromNode":"n_load2","fromSide":"bottom","toNode":"n_uv","toSide":"top"},
+		{"id":"e5","fromNode":"n_uv","fromSide":"bottom","toNode":"n_req","toSide":"top"},
+		{"id":"e6","fromNode":"n_req","fromSide":"bottom","toNode":"n_brake","toSide":"top"},
+		{"id":"e7","fromNode":"n_brake","fromSide":"bottom","toNode":"n_tick","toSide":"top"},
+		{"id":"e8","fromNode":"n_tick","fromSide":"bottom","toNode":"n_write","toSide":"top"},
+		{"id":"e9","fromNode":"n_write","fromSide":"bottom","toNode":"n_margin","toSide":"top"},
+		{"id":"e10","fromNode":"n_margin","fromSide":"bottom","toNode":"n_product","toSide":"top"},
+		{"id":"e11","fromNode":"n_uv","fromSide":"right","toNode":"n_note3","toSide":"left","label":"电压恢复时","color":"2"},
+		{"id":"e12","fromNode":"n_req","fromSide":"right","toNode":"n_note2","toSide":"left","label":"仅欠压边沿","color":"2"},
+		{"id":"e13","fromNode":"n_write","fromSide":"right","toNode":"n_note1","toSide":"left","label":"滑行段未记账","color":"2"}
+	]
+}

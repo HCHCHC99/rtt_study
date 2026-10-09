@@ -1,0 +1,8 @@
+si SWD
+speed 500
+device HC32F460PETB
+connect
+erase
+loadbin "D:\RT_HC32F460_v.1.0.0\RTT_template\build\keil\Obj\rtthread.bin", 0x0
+verifybin "D:\RT_HC32F460_v.1.0.0\RTT_template\build\keil\Obj\rtthread.bin", 0x0
+exit

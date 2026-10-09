@@ -1,0 +1,308 @@
+#include "hc32_drv_timer.h"
+/*
+ * Copyright (c) 2006-2022, RT-Thread Development Team
+ * Copyright (c) 2022, Xiaohua Semiconductor Co., Ltd.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Change Logs:
+ * Date           Author       Notes
+ * 2022-04-28     CDT          first version
+ * 2026-08-24     (port)       接入电源采样设备（adc/cur/vm）+ power 命令
+ */
+
+#include <rtthread.h>
+#include <rtdevice.h>
+#include <board.h>
+#include "common.h"
+#include "rtt_manager.h"
+#include <stdlib.h>
+#include "dev_registry.h"
+#include "dev_model.h"
+#include "dev_state.h"
+#include "dev_adc.h"
+#include "hc32_drv_adc.h"
+#include "us_timer.h"
+#include "dev_cur_sensor.h"
+#include "dev_bus_voltage.h"
+#include "dev_power_isr.h"
+#include "dev_monitor.h"
+#include "dev_polarity.h"
+#include "led_task.h"
+#include "di_task.h"
+#include "rod_task.h"
+#include "task_set.h"
+#include "dev_act.h"
+#include "dev_config.h"
+#include "dev_param.h"
+
+/* dev_sm_thread.c 的 INIT 诊断计数 */
+extern volatile uint32_t g_sm_diag_entered;
+extern volatile uint32_t g_sm_diag_recv_ok;
+
+
+static void cmd_power(void)
+{
+    float v = 0.0f, c = 0.0f;
+    uint8_t sv = 0U, sc = 0U;
+    uint16_t v_i = 0U, v_d = 0U, c_i = 0U, c_d = 0U;
+
+    BusVoltage_GetInfo(&v, &sv);
+    CurrentSensor_GetInfo(&c, &sc);
+    /* 不打印浮点：拆成整型，分别打印小数点前后 */
+    v_i = (uint16_t)v;
+    v_d = (uint16_t)((v - (float)v_i) * 100.0f);
+    c_i = (uint16_t)c;
+    c_d = (uint16_t)((c - (float)c_i) * 10.0f);
+    MAIN_D("Vbus=%u.%02uV[%u] I=%u.%01umA[%u]", v_i, v_d, sv, c_i, c_d, sc);
+}
+MSH_CMD_EXPORT_ALIAS(cmd_power, power, show bus voltage & current);
+
+static void cmd_sys_evt(int argc, char **argv)
+{
+    if (argc == 2) {
+        Sys_Event_Send(strtoul(argv[1], RT_NULL, 0));
+    } else {
+        MAIN_D("usage: sys_evt <hex_bits>\r\n");
+    }
+}
+MSH_CMD_EXPORT_ALIAS(cmd_sys_evt, sys_evt, send system event bits (hex));
+
+/* 每 1s 打印采样结果：最新 AD 值、缓冲平均值、换算电流/电压（不打印浮点） */
+static const char *main_th_stat_name(int stat)
+{
+    switch (stat) {
+    case 0: return "INIT";
+    case 1: return "SUSPEND";
+    case 2: return "READY";
+    case 3: return "RUN";
+    default: return "?";
+    }
+}
+
+static void monitor_sample_1s(void)
+{
+    uint16_t raw_v = 0U, raw_i = 0U;
+    int sm_cur = 0;
+    rt_uint32_t sm_evt = 0U;
+    char sm_evt_name[128];
+    float v_avg = 0.0f, c_avg = 0.0f;
+    float v_lst = 0.0f, i_v_lst = 0.0f;   /* ADC 最新：电压 V（分压换算）/ 电流通道电压 V（无 mA 换算） */
+    uint32_t v_avg_mv = 0U, v_lst_mv = 0U;
+    uint16_t c_avg_i = 0U, c_avg_d = 0U, i_v_lst_i = 0U, i_v_lst_d = 0U;
+    uint32_t t_us = 0U;
+
+    UsTimer_UpdateTimestamp();
+    Polarity_PrintPending();   /* 线程上下文：刷新未打印的极性跳变（调试） */
+    Monitor_DumpStatus();    /* 1s：系统状态机 + 过压/欠压/过流状态 */
+    /* INIT 卡死诊断：状态 / 事件组未消费位 / sys_sm 线程是否存在，三样一屏定位 */
+    sm_cur = (int)mySystem.sys_sm.cur_state;
+    sm_evt = (mySystem.sys_evt != RT_NULL) ? mySystem.sys_evt->set : 0U;
+    Sys_EventBitsName(sm_evt, sm_evt_name, (uint32_t)sizeof(sm_evt_name));
+    SM_DIAG_PRINT("cur=%d(%s) evt=0x%08x(%s) sys_sm=%s entered=%u recv=%u",
+                  sm_cur, Monitor_SysStateName((uint8_t)sm_cur),
+                  (unsigned)sm_evt, sm_evt_name,
+                  rt_thread_find((char *)"sys_sm") ? "yes" : "no",
+                  (unsigned)g_sm_diag_entered, (unsigned)g_sm_diag_recv_ok);
+    /* 线程调度真相：全线程调度状态 + 优先级（谁没启动/谁在空转一目了然）
+       stat 含义: 0=INIT 1=SUSPEND 2=READY 3=RUNNING 4=CLOSE */
+    {
+        struct rt_object_information *info = rt_object_get_information(RT_Object_Class_Thread);
+        rt_list_t *node;
+        for (node = info->object_list.next; node != &(info->object_list); node = node->next)
+        {
+            rt_thread_t t = (rt_thread_t)rt_list_entry(node, struct rt_object, list);
+            char th_name[RT_NAME_MAX + 1];
+            rt_memcpy(th_name, t->name, RT_NAME_MAX);
+            th_name[RT_NAME_MAX] = '\0';
+            TH_DIAG_PRINT("%-8s stat=%d(%s) prio=%d",
+                          th_name, (int)(t->stat & RT_THREAD_STAT_MASK),
+                          main_th_stat_name((int)(t->stat & RT_THREAD_STAT_MASK)),
+                          (int)t->current_priority);
+        }
+    }
+    Task_Set_StarvationCheck();  /* starvation guard */
+    t_us = (uint32_t)UsTimer_GetTimestampUs();
+
+    Dev_Adc_GetRaw(0, &raw_v);
+    Dev_Adc_GetRaw(1, &raw_i);
+    BusVoltage_GetInfo(&v_avg, RT_NULL);
+    CurrentSensor_GetInfo(&c_avg, RT_NULL);
+    Dev_Adc_GetLatest(&v_lst, &i_v_lst);  /* 电流通道返回 ADC 电压 V；mA 权威源在 dev_cur_sensor（c_avg） */
+
+    v_avg_mv = (uint32_t)(v_avg * 1000.0f);
+    v_lst_mv  = (uint32_t)(v_lst * 1000.0f);
+    c_avg_i = (uint16_t)c_avg;
+    c_avg_d = (uint16_t)((c_avg - (float)c_avg_i) * 10.0f);
+    i_v_lst_i = (uint16_t)i_v_lst;
+    i_v_lst_d = (uint16_t)((i_v_lst - (float)i_v_lst_i) * 100.0f);
+
+    /* ADC 层：原始 AD + 最新工程值（电压=分压换算 V；电流通道=ADC 电压 V，差分放大器 mA 换算在 dev_cur_sensor） */
+    MONITOR_PRINT("adc: t=%uus AD=%u/%u cur_v=%u.%02uV vol=%umV",
+                  t_us, raw_v, raw_i, i_v_lst_i, i_v_lst_d, v_lst_mv);
+    /* 设备层：电流传感器（差分放大器换算 mA）+ 母线电压均值（电压已含 VOL_OFFSET 偏置） */
+    MONITOR_PRINT("dev: t=%uus cur=%u.%01umA vol=%umV",
+                  t_us, c_avg_i, c_avg_d, v_avg_mv);
+
+    Task_Stack_Monitor();      /* 1s：栈哨兵水位监控，超 75% 才打印 */
+}
+volatile int test = 0;
+
+#if DEV_ENABLE_ARB_SELFTEST
+/* ============ 仲裁台架自测（无串口注入命令用；量产把 DEV_ENABLE_ARB_SELFTEST 置 0） ============ */
+#define ARB_SELFTEST_AXIS_ID        0U
+#define ARB_SELFTEST_THREAD_NAME    "arbtst"
+#define ARB_SELFTEST_THREAD_STACK   TASK_STACK_ARB_SELFTEST
+#define ARB_SELFTEST_THREAD_TICK    10U
+#define ARB_SELFTEST_BOOT_DELAY_MS  3000U
+#define ARB_SELFTEST_STEP_MS        3000U
+
+static void arb_selftest_send(uint8_t device_id, uint8_t priority,
+                              uint8_t cmd_type, uint8_t duty_pct, rt_bool_t urgent)
+{
+    rt_err_t ret = Arb_SendCommand(ARB_SELFTEST_AXIS_ID, device_id, priority,
+                                   cmd_type, duty_pct, urgent);
+    if (ret != RT_EOK) {
+        ARB_PRINT("selftest send fail dev=%u cmd=%u err=%d",
+                  (unsigned)device_id, (unsigned)cmd_type, (int)ret);
+    }
+}
+
+static void arb_selftest_thread_entry(void *param)
+{
+    (void)param;
+    rt_thread_mdelay(ARB_SELFTEST_BOOT_DELAY_MS);
+    ARB_PRINT("selftest start");
+
+    /* st1: power 允许正转 -> [ARB] fwd duty=85 */
+    arb_selftest_send((uint8_t)DEV_ID_POWER_POS, (uint8_t)PRIO_POWER,
+                      (uint8_t)CMD_TYPE_RUN_FWD, 85U, RT_FALSE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st2: CAN 优先级更高 -> [ARB] rev duty=70 */
+    arb_selftest_send((uint8_t)DEV_ID_CAN, (uint8_t)PRIO_CAN,
+                      (uint8_t)CMD_TYPE_RUN_REV, 70U, RT_FALSE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st3: 限位阻塞正转（urgent 插队）-> 维持 REV，block_fwd=1 */
+    arb_selftest_send((uint8_t)DEV_ID_LIMIT_FWD, (uint8_t)PRIO_LIMIT,
+                      (uint8_t)CMD_TYPE_BLOCK_FWD, 0U, RT_TRUE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st4: 解除阻塞 -> 维持 REV（CAN 仍压过 POWER） */
+    arb_selftest_send((uint8_t)DEV_ID_LIMIT_FWD, (uint8_t)PRIO_LIMIT,
+                      (uint8_t)CMD_TYPE_UNBLOCK_FWD, 0U, RT_FALSE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st5: 同设备 CAN 双向请求 -> 冲突停机 conflict_fault=1 */
+    arb_selftest_send((uint8_t)DEV_ID_CAN, (uint8_t)PRIO_CAN,
+                      (uint8_t)CMD_TYPE_RUN_FWD, 60U, RT_FALSE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st6: 急停 -> 清允许队列，STOP */
+    arb_selftest_send((uint8_t)DEV_ID_EMERGENCY, (uint8_t)PRIO_EMERGENCY,
+                      (uint8_t)CMD_TYPE_EMERGENCY_STOP, 0U, RT_TRUE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st7: power 正转恢复 -> [ARB] fwd duty=85 */
+    arb_selftest_send((uint8_t)DEV_ID_POWER_POS, (uint8_t)PRIO_POWER,
+                      (uint8_t)CMD_TYPE_RUN_FWD, 85U, RT_FALSE);
+    rt_thread_mdelay(ARB_SELFTEST_STEP_MS);
+
+    /* st8: 急停收尾 -> STOP，自测结束 */
+    arb_selftest_send((uint8_t)DEV_ID_EMERGENCY, (uint8_t)PRIO_EMERGENCY,
+                      (uint8_t)CMD_TYPE_EMERGENCY_STOP, 0U, RT_TRUE);
+    ARB_PRINT("selftest done");
+
+    while (1) {
+        rt_thread_mdelay(60000U);
+    }
+}
+
+static void Arb_SelfTest_Start(void)
+{
+    if (Task_Set_Create(ARB_SELFTEST_THREAD_NAME, arb_selftest_thread_entry, RT_NULL,
+                        ARB_SELFTEST_THREAD_STACK, TASK_PRIO_ARB_SELFTEST, 0U) == RT_NULL) {
+        ARB_PRINT("selftest thread create failed");
+    }
+}
+#endif /* DEV_ENABLE_ARB_SELFTEST */
+
+#if DEV_ENABLE_PARAM
+/* Flash 存储测试开关（volatile：rtt debug 里直接改值触发，非阻塞观测）
+ * 慢块 A：1 = 修改一个业务值并保存一组；2 = 连续保存填满当前扇区（剩余只够两组）
+ * 快块 B：3 = 保存当前推杆行程一组；4 = 连续保存填满快块当前扇区 */
+volatile int savelabel = 0;
+#endif
+
+int main(void)
+{
+    MAIN_D("fw build 2026-08-29-arb2 (sm diag + rtt sync)");
+    /* 时钟频率打印 + TMR6 us 时间基准初始化 */
+    Print_All_Clock_Freq();
+    /* 通用 us 计时器：绑定 HC32 TMR6 驱动并启动 */
+    UsTimer_Bind(&hc_us_timer_ops);
+    UsTimer_Init();
+    UsTimer_Start();
+
+    /* ADC 设备：绑定 HC32 底层驱动（dev_adc_ops），注册即 init（TMR0_1+AOS 已配置，未启动） */
+    Dev_Adc_Bind(&hc32_adc_ops);
+#if DEV_ENABLE_PARAM
+    /* 应用参数：上电扫 Flash 加载 g_volt_cfg/g_cur_cfg（或首次写默认值），只跑一次 */
+    Dev_Param_Init();
+#endif
+    Dev_RegisterAll();
+    Task_Set_Start();     /* Starvation guard: lowest-prio canary */
+
+    RttManager_DumpSwitches();
+
+    /* 表驱动状态机：对象构建（先建事件组 sys_evt，检测 ISR 发事件依赖它） */
+    App_Model_Init();
+    Dev_Start();        /* registry 线程：驱动 monitor（B 模式 100ms 刷新 g_monitor） */
+
+
+    Sys_Sm_Thread_Start();
+
+
+    Led_Task_Start();    /* LED 闪烁任务（独立线程，1s 翻转，走 Adp GPIO） */
+
+    Di_Task_Start();     /* DI 采集任务（10ms：电源极性扫描，事件在设备内发） */
+
+    Rod_Task_Start();         /* 推杆位置/状态 10ms 更新 */
+
+#if DEV_ENABLE_ARB_SELFTEST
+    Arb_SelfTest_Start();     /* 仲裁台架自测线程（DEV_ENABLE_ARB_SELFTEST=0 关闭） */
+#endif
+
+    Task_Stack_Dump();          /* 打印各线程栈大小 + 总栈 + 堆余量 */
+
+
+    while (1)
+    {
+        test++;
+
+#if DEV_ENABLE_PARAM
+        /* Flash 存储测试：debug 里改 savelabel（1/2=慢块A，3/4=快块B） */
+        if (savelabel == 1) {
+            savelabel = 0;
+            Dev_Param_SaveTest();
+        }
+        if (savelabel == 2) {
+            savelabel = 0;
+            Dev_Param_FillTest();
+        }
+        if (savelabel == 3) {
+            savelabel = 0;
+            /* 保存当前推杆行程一组（组合调用，无独立测试函数） */
+            (void)Dev_Param_RodSave(RodPosition_GetCurrent(&mySystem.axis[0].position));
+        }
+        if (savelabel == 4) {
+            savelabel = 0;
+            Dev_Param_RodFillTest(RodPosition_GetCurrent(&mySystem.axis[0].position));
+        }
+#endif
+
+        rt_thread_mdelay(1000);     /* 1s 周期（对齐 monitor_sample_1s 名称与各 1s 打印节奏） */
+        monitor_sample_1s();
+    }
+}

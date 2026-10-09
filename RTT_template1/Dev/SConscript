@@ -1,0 +1,19 @@
+Import('RTT_ROOT')
+Import('rtconfig')
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+src     = Glob('*.c')             # 只收 Dev 顶层 .c（dev_adc.c / dev_registry.c）
+CPPPATH = [cwd, str(Dir('#'))]
+
+# 子目录（mgr / power）各自带 SConscript，独立成组，不并入父组，避免 Keil 工程重复
+list = os.listdir(cwd)
+for d in list:
+    path = os.path.join(cwd, d)
+    if os.path.isfile(os.path.join(path, 'SConscript')):
+        SConscript(os.path.join(d, 'SConscript'))
+
+group = DefineGroup('Dev', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')

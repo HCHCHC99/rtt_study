@@ -1,0 +1,66 @@
+{
+	"nodes":[
+		{"id":"n_title","type":"text","text":"## 推杆系统完整程序流程图（HC32F460 + RT-Thread）\n上电初始化 → 系统状态机（INIT/IDLE/RUN/EMERGENCY/FAULT）+ 事件源（电压/电流/极性/推杆）→ 过流分流 → 电机仲裁 → GPIO 输出\n颜色：绿=主流程 | 黄=检测/判断 | 红=故障 | 紫=状态 | 青=执行 | 无色=数据/说明","x":-620,"y":-340,"width":2620,"height":180,"color":"4"},
+
+		{"id":"n_boot","type":"text","text":"## 上电 / 复位（船型开关）\n- HRC→PLL 200MHz（本板无晶振，board.c）\n- RT-Thread 内核启动 → main()","x":-620,"y":0,"width":420,"height":160,"color":"4"},
+		{"id":"n_main","type":"text","text":"### main() 初始化\n- **Param_Load + Apply**：A 块 → 电压/电流阈值、**方向变化过流屏蔽 cur_block_ms**、校准窗 a~d、rod_stop_margin、hall_dir_seq、motor_dir_seq、**推杆机械参数（stroke=88/ratio=1183/pulses=12/lead=360，转动模式）**\n- StateMachine_Init + Dev_RegisterAll\n- 发 INIT_DONE | WORK_ENABLE","x":-620,"y":240,"width":420,"height":260},
+		{"id":"n_init","type":"text","text":"### INIT\n等待初始化完成事件","x":-620,"y":540,"width":420,"height":100,"color":"6"},
+
+		{"id":"n_idle","type":"text","text":"### IDLE 入口\n- Dev_Registry_InitAll（上电/复位业务态）\n- 启动 1ms 心跳（TMR0_2）+ ADC 2kHz（TMR0_1 触发）","x":-100,"y":0,"width":420,"height":180,"color":"6"},
+		{"id":"n_run","type":"text","text":"### RUN 入口\n- 仲裁使能 WORK_ENABLE\n- ResyncActFromFault（FAULT 恢复重发 RUN）：当前不可达——跳转表 FAULT 只能→IDLE；恢复重发实际由 IDLE InitAll + 极性窗重判沿完成","x":-100,"y":280,"width":420,"height":180,"color":"4"},
+		{"id":"n_emergency","type":"text","text":"### EMERGENCY（瞬态）\n全轴 EVT_ACT_HOLD + EMERGENCY_STOP(urgent)\n→ 自动跳 FAULT","x":-100,"y":560,"width":420,"height":150,"color":"2"},
+		{"id":"n_fault","type":"text","text":"### FAULT（稳态）\n- 仲裁禁使能 + EMERGENCY_STOP（与 EMERGENCY 构成幂等安全冗余）\n- fault_bits 挂起：bit0 过流 / bit2 电压 / bit3 限位霍尔\n- EMERGENCY/FAULT 期间 VOLT_* 同样触发","x":-100,"y":790,"width":420,"height":220,"color":"2"},
+		{"id":"n_recover","type":"text","text":"### 故障恢复（fault_bits 全 0 → RECOVERY → IDLE）\n① VOLT_NORMAL：电压过迟滞持续 500ms → 清过压/欠压位\n② POLARITY_CHG：电源换向沿 & 新方向≠过流故障方向 → 清过流位（船型开关快切自愈）\n③ 手动：msh `sys_evt` 注入\n**欠压恢复链**：RECOVERY→IDLE InitAll（仲裁复位使能+清 allow）→ 极性重填窗判向 → 沿重发 RUN_FWD/REV → 电机恢复\nprev==RUN 补发 WORK_ENABLE → RUN","x":-100,"y":1090,"width":420,"height":360,"color":"4"},
+
+		{"id":"n_volt","type":"text","text":"### 电压检测（1ms ISR，TMR0_2）\nADC 500µs×20 均值 × gain 31.3（100k:3.3k 分压）\n- 过压 → EVT_SYS_VOLT_OVER\n- 欠压 → EVT_SYS_VOLT_UNDER + **RodSaveRequest**（仅 **SeenValid=1** 才存）\n- 恢复：过迟滞持续 500ms（先发 VOLT_RECOVER_WAIT 诊断，中途回故障区重置计数）→ EVT_SYS_VOLT_NORMAL\n- **SeenValid**：>欠压阈+迟滞 只置 1、IDLE 不清（区分调试无母线冷启动 vs 真实掉电），仅作行程保存门控\n- **欠压状态即极性模块门控源**（BusVoltage_IsUnderVoltage）","x":440,"y":0,"width":420,"height":320,"color":"3"},
+		{"id":"n_cur","type":"text","text":"### 电流检测（1ms ISR）\n换算灵敏度 500mA/V 等效（标称 10mΩ×20 实测偏大 10 倍已 /10 校准）\n**1.6A 连续 30ms** 窗口（任一 ms 回落清零）→ EVT_SYS_OVER_CURRENT（沿发一次）\n**方向变化屏蔽**：WritePair 停止→正/反、换向沿置 block（默认 30ms，A 块 cur_block_ms）→ 屏蔽期不判定、窗口清零 → 最早 60ms 判过流\n触发锁存电流快照 GetFaultMa → dispatch 打印 `[POWER] over curr detect`","x":440,"y":340,"width":420,"height":240,"color":"3"},
+		{"id":"n_polarity","type":"text","text":"### 极性检测（2ms di_task）+ 欠压门控\nPB15 单管+上拉：低=FWD 高=REV；5 点窗 10ms 消抖\n**门控 = 仅欠压判据**：IsUnderVoltage → ForceUnpowered（清窗，判掉电）；电压恢复后清窗重判，须重新等满 5 点稳定窗\n稳定跳变沿（FWD/REV）：\n- EVT_ACT_POLARITY_FWD/REV（轴事件）\n- RUN_FWD/REV @98% → 仲裁（RemoveOpposite 先清反方向残留）\n- EVT_SYS_POLARITY_CHG（系统事件，故障清除决策在 dev_state）\nUNPOWERED 仅门控可达（单管运行态不可达）；ABNORMAL 枚举保留\nPOLARITY_SIM_MODE_EN=1：g_pol_sim_state 注入调试","x":440,"y":560,"width":420,"height":360,"color":"3"},
+		{"id":"n_hallmotor","type":"text","text":"### 电机霍尔（EXTI 边沿）\nB 沿采样 A 判向（hall_dir_seq 矫正）\n符号脉冲增量 → 推杆位置积分","x":440,"y":960,"width":420,"height":160,"color":"3"},
+		{"id":"n_rod","type":"text","text":"### 推杆 Task（10ms）【转动模式：数值单位=度】\n- 位置 = 霍尔脉冲积分（**0.02536°/脉冲；无界累加可越过 [0,88]**；失忆从 B 块恢复）\n- 消费 calib_req：位置重置 0/88° → 限位态\n- **限位驻留期每 10ms 重发 BLOCK**：CMD 重新置 allow 最迟下一拍被压住\n- 位置停车：pos ≥ **87.6°**（=stroke−margin0.4）→ AT_MAX → 限位态\n- PollSave：欠压后延时 ≈20ms 写 B 块（**仅已校准**；未校准 skip）","x":440,"y":1160,"width":420,"height":320,"color":"4"},
+
+		{"id":"n_calib","type":"text","text":"### RodCalib_OnOverCurrent（dispatch 线程判定）\n依据：仲裁方向 + 校准窗口/校准状态","x":1000,"y":340,"width":440,"height":140,"color":"3"},
+		{"id":"n_softlimit","type":"text","text":"### 窗口内 / 未校准 = 软限位（不算故障）\n窗口（A 块，°）：**REV pos≤2 → 置 0°；FWD pos≥86 → 置 88°**（窗口与 stroke 零耦合，独立绝对值）\n- dispatch **即时** CLEAR_ALLOW_FWD/REV（亚毫秒断电，不等 10ms 拍）\n- 置 calib_req → 推杆 Task 校准（限位态入口再清一次，幂等）\n- 限位态：禁此向、允反向","x":1000,"y":540,"width":440,"height":240,"color":"4"},
+		{"id":"n_ocfault","type":"text","text":"### 窗口外 = 异物卡住（真故障）\n过流位置位 + 记录故障方向 s_overcur_dir\n→ EMERGENCY → FAULT","x":1000,"y":820,"width":440,"height":170,"color":"2"},
+		{"id":"n_chgclear","type":"text","text":"### 极性换向清除（决策在 dev_state，极性模块不知故障）\nPOLARITY_CHG & 有过流位 & 新方向≠故障方向\n→ 清过流位 → fault_bits=0 → RECOVERY\n（A 向堵转断电后给 B 向电 = 新周期重试；同向再给电 = 仍堵转，保持 FAULT）","x":1000,"y":1050,"width":440,"height":230,"color":"4"},
+
+		{"id":"n_arb","type":"text","text":"### 电机仲裁 Arb_DataUpdate\n命令队列 → allow_fwd/rev 命令列表（SetAllow 入列即有输出权，ClearAll 清空）\n优先级：EMERGENCY > LIMIT > POWER > CMD\nRUN_FWD/REV 先 RemoveOppositePowerAllow：清反方向 allow（自愈换向/掉电残留双允许冲突）\n**限位对抗**：rod 限位驻留每拍 CLEAR_ALLOW，压制 CMD 重新置位（残余 ≤1 拍）","x":1560,"y":0,"width":440,"height":260,"color":"5"},
+		{"id":"n_gpio","type":"text","text":"### dev_gpio_motor 输出（motor_dir_seq 矫正）\n真值表（**2026-09-14 起**）：FWD=1/REV=0 正转；0/1 反转；**1/1 刹车（停止/急停/上电默认）**；0/0 滑行（无此输出路径）\n- 成对写在 rt_hw_interrupt_disable 内\n- **WritePair = 方向变化过流屏蔽触发点**（进入转动方向且方向≠上次 → ReqBlock）","x":1560,"y":300,"width":440,"height":240,"color":"5"},
+		{"id":"n_flasha","type":"text","text":"### Flash A 块（扇区 62→61，**84B** 追加写）\n电压阈值(26/20/1/500ms)、电流(1.6A/30ms/**屏蔽30ms**)、hall_dir_seq、motor_dir_seq\n校准窗 2/2/86/86、stop_margin 0.4\n**推杆机械参数（°）：stroke=88 / ratio=1183 / pulses=12 / lead=360**（DFT 宏单点 dev_param.h，RodApply 覆盖初值）\n**布局 2026-09-14 变更，旧记录 CRC 失效走 defaults，升级后须 param_erase**","x":1560,"y":550,"width":440,"height":260,"color":"3"},
+		{"id":"n_flashb","type":"text","text":"### Flash B 块（扇区 60→51，24B 追加写）\nposition_mm：欠压延时 ≈20ms 保存，**仅已校准才落盘**（未校准 skip，防假基准伪装）\n上电恢复三道门：无有效块 skip / **seq<=1 默认落盘 skip**（防假校准）/ 通过 → CALIBRATED\nseq=1=默认落盘（假）↔ 拒绝；seq≥2=真实保存（必已校准）↔ 放行\nCRC 不过走首次校准\n详见《欠压保存位置及首次校准.canvas》","x":1560,"y":830,"width":440,"height":260,"color":"3"}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n_boot","fromSide":"bottom","toNode":"n_main","toSide":"top"},
+		{"id":"e2","fromNode":"n_main","fromSide":"bottom","toNode":"n_init","toSide":"top"},
+		{"id":"e3","fromNode":"n_init","fromSide":"right","toNode":"n_idle","toSide":"left","label":"INIT_DONE | WORK_ENABLE"},
+		{"id":"e4","fromNode":"n_idle","fromSide":"bottom","toNode":"n_run","toSide":"top","label":"WORK_ENABLE"},
+		{"id":"e5","fromNode":"n_run","fromSide":"bottom","toNode":"n_emergency","toSide":"top","label":"过压/欠压/过流真故障/限位霍尔","color":"2"},
+		{"id":"e5b","fromNode":"n_idle","fromSide":"left","toNode":"n_emergency","toSide":"left","label":"IDLE 态同触发","color":"2"},
+		{"id":"e6","fromNode":"n_emergency","fromSide":"bottom","toNode":"n_fault","toSide":"top","label":"自动"},
+		{"id":"e7","fromNode":"n_fault","fromSide":"bottom","toNode":"n_recover","toSide":"top","label":"fault_bits=0"},
+		{"id":"e8","fromNode":"n_recover","fromSide":"left","toNode":"n_idle","toSide":"left","label":"RECOVERY → IDLE（→RUN）","color":"4"},
+
+		{"id":"e9","fromNode":"n_volt","fromSide":"left","toNode":"n_emergency","toSide":"right","label":"VOLT_OVER / VOLT_UNDER","color":"2"},
+		{"id":"e10","fromNode":"n_volt","fromSide":"bottom","toNode":"n_recover","toSide":"right","label":"VOLT_NORMAL（清电压位）"},
+		{"id":"e11","fromNode":"n_volt","fromSide":"bottom","toNode":"n_rod","toSide":"top","label":"RodSaveRequest","color":"4"},
+
+		{"id":"e12","fromNode":"n_cur","fromSide":"right","toNode":"n_calib","toSide":"left","label":"过流沿"},
+		{"id":"e13","fromNode":"n_calib","fromSide":"bottom","toNode":"n_softlimit","toSide":"top","label":"窗口内/未校准"},
+		{"id":"e14","fromNode":"n_calib","fromSide":"right","toNode":"n_ocfault","toSide":"left","label":"窗口外","color":"2"},
+		{"id":"e15","fromNode":"n_softlimit","fromSide":"left","toNode":"n_rod","toSide":"right","label":"calib_req"},
+		{"id":"e16","fromNode":"n_softlimit","fromSide":"right","toNode":"n_arb","toSide":"bottom","label":"CLEAR_ALLOW 即时"},
+		{"id":"e17","fromNode":"n_ocfault","fromSide":"left","toNode":"n_emergency","toSide":"right","label":"EMERGENCY","color":"2"},
+
+		{"id":"e18","fromNode":"n_polarity","fromSide":"right","toNode":"n_arb","toSide":"left","label":"RUN_FWD/REV @98%"},
+		{"id":"e19","fromNode":"n_polarity","fromSide":"bottom","toNode":"n_chgclear","toSide":"top","label":"EVT_SYS_POLARITY_CHG"},
+		{"id":"e20","fromNode":"n_chgclear","fromSide":"left","toNode":"n_recover","toSide":"right","label":"清过流位 → RECOVERY","color":"4"},
+
+		{"id":"e21","fromNode":"n_hallmotor","fromSide":"bottom","toNode":"n_rod","toSide":"top","label":"符号脉冲增量"},
+		{"id":"e22","fromNode":"n_rod","fromSide":"right","toNode":"n_arb","toSide":"bottom","label":"限位驻留每拍 CLEAR_ALLOW / AT_MAX"},
+		{"id":"e23","fromNode":"n_rod","fromSide":"right","toNode":"n_flashb","toSide":"left","label":"欠压保存 position_mm","color":"4"},
+
+		{"id":"e24","fromNode":"n_arb","fromSide":"bottom","toNode":"n_gpio","toSide":"top","label":"allow map"},
+		{"id":"e25","fromNode":"n_gpio","fromSide":"bottom","toNode":"n_hallmotor","toSide":"right","label":"电机转动"},
+		{"id":"e26","fromNode":"n_volt","fromSide":"left","toNode":"n_polarity","toSide":"left","label":"欠压门控 IsUnderVoltage","color":"2"},
+		{"id":"e27","fromNode":"n_polarity","fromSide":"right","toNode":"n_arb","toSide":"left","label":"恢复沿重发 RUN_FWD/REV"}
+	]
+}

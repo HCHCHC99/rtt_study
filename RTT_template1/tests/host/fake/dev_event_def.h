@@ -1,0 +1,12 @@
+#ifndef FAKE_POLARITY_DEV_EVENT_DEF_H
+#define FAKE_POLARITY_DEV_EVENT_DEF_H
+
+#define EVT_ACT_POLARITY_FWD (1U << 2)
+#define EVT_ACT_POLARITY_REV (1U << 3)
+#define EVT_SYS_POLARITY_CHG (1U << 11)
+#define EVT_SYS_VOLT_NORMAL  (1U << 4)
+#define EVT_SYS_VOLT_OVER    (1U << 5)
+#define EVT_SYS_VOLT_UNDER   (1U << 6)
+#define EVT_SYS_VOLT_RECOVER_WAIT (1U << 10)
+
+#endif
