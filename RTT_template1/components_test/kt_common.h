@@ -6,13 +6,22 @@
  *    并用 MSH_CMD_EXPORT_ALIAS 导出同名 msh 命令；
  *  - 所有阻塞调用必须带超时（<= KT_TIMEOUT_2S），防止挂死 tshell；
  *  - 每个测试自清理（delete/detach），可重复执行；
- *  - 定时器/空闲钩子回调内禁止 rt_kprintf，只允许置计数或放信号量；
- *  - 校验一律用 KT_CHECK，结束一律 kt_result_report 打印 PASS/FAIL 汇总。
+ *  - 定时器/空闲钩子回调内禁止任何打印，只允许置计数或放信号量；
+ *  - 校验一律用 KT_CHECK，结束一律 kt_result_report 打印 PASS/FAIL 并登记结果表；
+ *  - 打印统一走 rtt_manager.h 的组件开关宏（开关区 KT_XXX_PRINT_EN）：
+ *    各 kt_*.c 必须在 include 本文件前把 KT_MODULE_PRINT 指到本组件的宏，如
+ *      #define KT_MODULE_PRINT(fmt, ...)  KT_SEM_PRINT(fmt, ##__VA_ARGS__)
  */
 #ifndef __KT_COMMON_H__
 #define __KT_COMMON_H__
 
 #include <rtthread.h>
+#include "rtt_manager.h"
+
+/* 测试文件打印出口；未按约定重定义时退化为无前缀 MAIN_D */
+#ifndef KT_MODULE_PRINT
+#define KT_MODULE_PRINT(fmt, ...)   MAIN_D(fmt, ##__VA_ARGS__)
+#endif
 
 /* ---------- 统一常量 ---------- */
 #define KT_PRIO_HIGH        24      /* 数值比 20(tshell) 大 = 更低 urgency，不抢 msh */
@@ -29,6 +38,13 @@ struct kt_result
     rt_uint32_t fail;
 };
 
+/* ---------- 结果登记表声明（实现见 kt_result.c；必须位于 struct 定义之后，
+   否则会变成函数原型作用域内的不完整类型，引发 conflicting types） ---------- */
+void kt_result_publish(const struct kt_result *r);      /* 同名覆盖登记 */
+const struct kt_result *kt_result_get(int index);       /* 越界返回 RT_NULL */
+int kt_result_count(void);
+void kt_summary_print(void);    /* 总表：一组件一行 PASS/FAIL + 总结论（MAIN_D_SYNC 防丢） */
+
 static inline void kt_result_init(struct kt_result *r, const char *name)
 {
     r->name  = name;
@@ -36,12 +52,14 @@ static inline void kt_result_init(struct kt_result *r, const char *name)
     r->fail  = 0;
 }
 
+/* 结束汇总：打印本组件 PASS/FAIL 行，并登记到 kt_result.c 结果表
+   （main 启动自跑 / kt_all 结束后由 kt_summary_print 统一打印总表） */
 static inline void kt_result_report(const struct kt_result *r)
 {
-    rt_kprintf("[KT][%s] ============ %s : %u/%u ============\n",
-               r->name,
-               (r->fail == 0) ? "PASS" : "FAIL",
-               (unsigned)(r->total - r->fail), (unsigned)r->total);
+    KT_MODULE_PRINT("============ %s : %u/%u ============",
+                    (r->fail == 0) ? "PASS" : "FAIL",
+                    (unsigned)(r->total - r->fail), (unsigned)r->total);
+    kt_result_publish(r);
 }
 
 /* 校验一步：cond 真记 PASS，假记 FAIL 并打印文件:行号。不中断流程。 */
@@ -50,16 +68,16 @@ static inline void kt_result_report(const struct kt_result *r)
     {                                                               \
         (res)->total++;                                             \
         if (cond)                                                   \
-            rt_kprintf("[KT][%s]   PASS %s\n", (res)->name, desc);  \
+            KT_MODULE_PRINT("PASS %s", desc);                       \
         else                                                        \
         {                                                           \
             (res)->fail++;                                          \
-            rt_kprintf("[KT][%s]   FAIL %s @%s:%d\n",               \
-                       (res)->name, desc, __FILE__, __LINE__);      \
+            KT_MODULE_PRINT("FAIL %s @%s:%d",                       \
+                            desc, __FILE__, __LINE__);              \
         }                                                           \
     } while (0)
 
-/* ---------- 各组件测试入口（kt_menu.c 汇总调用） ---------- */
+/* ---------- 各组件测试入口（kt_menu.c / main.c 汇总调用） ---------- */
 void kt_thread_test(void);
 void kt_sem_test(void);
 void kt_mutex_test(void);

@@ -33,6 +33,18 @@
 #define PARAM_PRINT_EN          1   /* 参数管理：加载/保存/默认值 */
 #define PARAM_WARNNING_PRINT_EN 1   /* 参数异常告警：param_set 越界拒收/上电加载越界（仅出错时打印，正常零输出） */
 #define RODP_PRINT_EN           1   /* 快块B推杆行程：加载/保存/错误（[RODP]） */
+
+/* ---- components_test 组件功能验证（批次①：内核对象） ---- */
+#define KT_THREAD_PRINT_EN      1   /* 组件测试：线程（[KT][thread]） */
+#define KT_SEM_PRINT_EN         1   /* 组件测试：信号量（[KT][sem]） */
+#define KT_MUTEX_PRINT_EN       1   /* 组件测试：互斥量（[KT][mutex]） */
+#define KT_EVENT_PRINT_EN       1   /* 组件测试：事件（[KT][event]） */
+#define KT_MAIL_PRINT_EN        1   /* 组件测试：邮箱（[KT][mail]） */
+#define KT_MQ_PRINT_EN          1   /* 组件测试：消息队列（[KT][mq]） */
+#define KT_MP_PRINT_EN          1   /* 组件测试：内存池（[KT][mp]） */
+#define KT_HEAP_PRINT_EN        1   /* 组件测试：堆（[KT][heap]） */
+#define KT_TIMER_PRINT_EN       1   /* 组件测试：硬定时器（[KT][timer]） */
+#define KT_IDLE_PRINT_EN        1   /* 组件测试：空闲钩子（[KT][idle]） */
 /* ===================== 各模块打印宏封装 ===================== */
 #if SYS_STATE_PRINT_EN
 #define SYS_STATE_PRINT(fmt, ...)   MAIN_D("[SYS_STATE] " fmt, ##__VA_ARGS__)
@@ -145,6 +157,67 @@
 #define RODP_PRINT(fmt, ...)        MAIN_D("[RODP] " fmt, ##__VA_ARGS__)
 #else
 #define RODP_PRINT(fmt, ...)        ((void)0)
+#endif
+
+/* ---- components_test 组件测试打印（明细走普通 RTT，可开关） ---- */
+#if KT_THREAD_PRINT_EN
+#define KT_THREAD_PRINT(fmt, ...)   MAIN_D("[KT][thread] " fmt, ##__VA_ARGS__)
+#else
+#define KT_THREAD_PRINT(fmt, ...)   ((void)0)
+#endif
+
+#if KT_SEM_PRINT_EN
+#define KT_SEM_PRINT(fmt, ...)      MAIN_D("[KT][sem] " fmt, ##__VA_ARGS__)
+#else
+#define KT_SEM_PRINT(fmt, ...)      ((void)0)
+#endif
+
+#if KT_MUTEX_PRINT_EN
+#define KT_MUTEX_PRINT(fmt, ...)    MAIN_D("[KT][mutex] " fmt, ##__VA_ARGS__)
+#else
+#define KT_MUTEX_PRINT(fmt, ...)    ((void)0)
+#endif
+
+#if KT_EVENT_PRINT_EN
+#define KT_EVENT_PRINT(fmt, ...)    MAIN_D("[KT][event] " fmt, ##__VA_ARGS__)
+#else
+#define KT_EVENT_PRINT(fmt, ...)    ((void)0)
+#endif
+
+#if KT_MAIL_PRINT_EN
+#define KT_MAIL_PRINT(fmt, ...)     MAIN_D("[KT][mail] " fmt, ##__VA_ARGS__)
+#else
+#define KT_MAIL_PRINT(fmt, ...)     ((void)0)
+#endif
+
+#if KT_MQ_PRINT_EN
+#define KT_MQ_PRINT(fmt, ...)       MAIN_D("[KT][mq] " fmt, ##__VA_ARGS__)
+#else
+#define KT_MQ_PRINT(fmt, ...)       ((void)0)
+#endif
+
+#if KT_MP_PRINT_EN
+#define KT_MP_PRINT(fmt, ...)       MAIN_D("[KT][mp] " fmt, ##__VA_ARGS__)
+#else
+#define KT_MP_PRINT(fmt, ...)       ((void)0)
+#endif
+
+#if KT_HEAP_PRINT_EN
+#define KT_HEAP_PRINT(fmt, ...)     MAIN_D("[KT][heap] " fmt, ##__VA_ARGS__)
+#else
+#define KT_HEAP_PRINT(fmt, ...)     ((void)0)
+#endif
+
+#if KT_TIMER_PRINT_EN
+#define KT_TIMER_PRINT(fmt, ...)    MAIN_D("[KT][timer] " fmt, ##__VA_ARGS__)
+#else
+#define KT_TIMER_PRINT(fmt, ...)    ((void)0)
+#endif
+
+#if KT_IDLE_PRINT_EN
+#define KT_IDLE_PRINT(fmt, ...)     MAIN_D("[KT][idle] " fmt, ##__VA_ARGS__)
+#else
+#define KT_IDLE_PRINT(fmt, ...)     ((void)0)
 #endif
 
 #if RTT_PRINTF_EN

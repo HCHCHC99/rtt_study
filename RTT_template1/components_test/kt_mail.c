@@ -3,6 +3,7 @@
  * 命令: kt_mail
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_MAIL_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 #define MB_POOL_SIZE 8

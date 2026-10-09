@@ -5,6 +5,7 @@
  *     软定时器(RT_USING_TIMER_SOFT)未开启, 留批次③。
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_TIMER_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 static struct kt_result g_r;

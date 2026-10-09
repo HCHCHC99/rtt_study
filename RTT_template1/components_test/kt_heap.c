@@ -4,6 +4,7 @@
  */
 #include <rtthread.h>
 #include <string.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_HEAP_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 static struct kt_result g_r;
@@ -20,9 +21,9 @@ void kt_heap_test(void)
     rt_memory_info(&total, &used0, &max_used);
     KT_CHECK(&g_r, total > 0, "rt_memory_info total > 0");
     KT_CHECK(&g_r, max_used >= used0, "max_used >= used");
-    rt_kprintf("[KT][heap]   total=%uKB used=%uKB max_used=%uKB\n",
-               (unsigned)(total >> 10), (unsigned)(used0 >> 10),
-               (unsigned)(max_used >> 10));
+    KT_HEAP_PRINT("total=%uKB used=%uKB max_used=%uKB",
+                  (unsigned)(total >> 10), (unsigned)(used0 >> 10),
+                  (unsigned)(max_used >> 10));
 
     p1 = (rt_uint8_t *)rt_malloc(512);
     KT_CHECK(&g_r, p1 != RT_NULL, "rt_malloc(512)");

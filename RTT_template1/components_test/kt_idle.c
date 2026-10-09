@@ -4,6 +4,7 @@
  * 注: hook 在 idle 线程上下文执行, 必须极短, 禁止打印/阻塞。
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_IDLE_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 static struct kt_result g_r;
@@ -30,7 +31,7 @@ void kt_idle_test(void)
     rt_thread_mdelay(100);
     n = i_count;
     KT_CHECK(&g_r, n > 0, "hook ran while idle (count>0)");
-    rt_kprintf("[KT][idle]   hook count in 100ms: %u\n", (unsigned)n);
+    KT_IDLE_PRINT("hook count in 100ms: %u", (unsigned)n);
 
     rt_thread_mdelay(100);
     KT_CHECK(&g_r, i_count > n, "hook keeps counting");

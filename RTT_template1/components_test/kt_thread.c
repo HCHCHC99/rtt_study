@@ -3,6 +3,7 @@
  * 命令: kt_thread
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_THREAD_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 static struct kt_result g_r;

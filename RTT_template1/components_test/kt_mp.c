@@ -4,6 +4,7 @@
  */
 #include <rtthread.h>
 #include <string.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_MP_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 #define MP_BLOCKS       16

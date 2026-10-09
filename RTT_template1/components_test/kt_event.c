@@ -3,6 +3,7 @@
  * 命令: kt_event
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_EVENT_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 #define KT_E_A  (1 << 0)

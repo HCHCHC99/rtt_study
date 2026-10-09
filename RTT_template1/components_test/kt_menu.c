@@ -55,6 +55,7 @@ static void kt_all(void)
     kt_heap_test();
     kt_timer_test();
     kt_idle_test();
+    kt_summary_print();
     rt_kprintf("\n[KT] ALL DONE. Expect every block ends with PASS.\n");
 }
 MSH_CMD_EXPORT_ALIAS(kt_all, kt_all, run all components tests);

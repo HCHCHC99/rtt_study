@@ -3,6 +3,7 @@
  * 命令: kt_mq
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_MQ_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 struct kt_msg

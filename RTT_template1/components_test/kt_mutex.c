@@ -3,6 +3,7 @@
  * 命令: kt_mutex
  */
 #include <rtthread.h>
+#define KT_MODULE_PRINT(fmt, ...) KT_MUTEX_PRINT(fmt, ##__VA_ARGS__)
 #include "kt_common.h"
 
 static struct kt_result g_r;
