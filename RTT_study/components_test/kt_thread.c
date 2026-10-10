@@ -60,8 +60,13 @@ void kt_thread_test(void)
     KT_CHECK(&g_r, err == RT_EOK, "worker done sem in 2s");
     KT_CHECK(&g_r, t_param == 0x1234, "worker param == 0x1234");
     KT_CHECK(&g_r, t_self_handle == tid, "rt_thread_self in worker");
-    KT_CHECK(&g_r, t_prio == KT_PRIO_HIGH, "worker priority == 24");
+    KT_CHECK(&g_r, t_prio == KT_PRIO_HIGH, "worker priority == 17");
     KT_CHECK(&g_r, t_yield_err == RT_EOK, "rt_thread_yield in worker");
+
+    if (err != RT_EOK)
+    {
+        kt_diag_dump("thread-worker");      /* worker 2s 未完成: 转储调度证据 */
+    }
 
     /* mdelay 实测: 期望 ~50 tick, 容差 [40,100] */
     tick0 = rt_tick_get();

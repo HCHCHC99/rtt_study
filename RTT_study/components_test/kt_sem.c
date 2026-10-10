@@ -80,6 +80,10 @@ void kt_sem_test(void)
         KT_CHECK(&g_r, err == RT_EOK, "child done in 2s");
         KT_CHECK(&g_r, s_child_err == RT_EOK,
                  "child take ok(wake by release)");
+        if (err != RT_EOK)
+        {
+            kt_diag_dump("sem-child");      /* child 2s 未完成: 转储调度证据 */
+        }
     }
     rt_thread_mdelay(10);               /* child 退出并被 idle 回收 */
 

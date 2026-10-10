@@ -33,14 +33,14 @@ void kt_mutex_test(void)
 
     kt_result_init(&g_r, "mutex");
 
-    /* 0. 把 main 降到 KT_PRIO_LOW, 让"child(26) 抢 main(28) 的锁"可观测继承 */
+    /* 0. 把 main 降到 KT_PRIO_LOW, 让"child(18) 抢 main(19) 的锁"可观测继承 */
     m_saved_prio = rt_thread_self()->current_priority;
     prio_tmp = KT_PRIO_LOW;
     err = rt_thread_control(rt_thread_self(),
                             RT_THREAD_CTRL_CHANGE_PRIORITY, &prio_tmp);
     KT_CHECK(&g_r, err == RT_EOK, "control change own priority");
     KT_CHECK(&g_r, rt_thread_self()->current_priority == KT_PRIO_LOW,
-             "priority now 28");
+             "priority now 19");
 
     m_mux = rt_mutex_create("kt_m1", RT_IPC_FLAG_PRIO);
     KT_CHECK(&g_r, m_mux != RT_NULL, "rt_mutex_create != NULL");
@@ -60,7 +60,7 @@ void kt_mutex_test(void)
         KT_CHECK(&g_r, err == RT_EOK, "release twice");
         KT_CHECK(&g_r, m_mux->owner == RT_NULL, "owner back to NULL");
 
-        /* 优先级继承: child(26) 阻塞在 main(28) 持有的锁上 */
+        /* 优先级继承: child(18) 阻塞在 main(19) 持有的锁上 */
         err  = rt_sem_init(&m_go,   "kt_mg", 0, RT_IPC_FLAG_FIFO);
         err |= rt_sem_init(&m_done, "kt_md", 0, RT_IPC_FLAG_FIFO);
         KT_CHECK(&g_r, err == RT_EOK, "init sync sems");

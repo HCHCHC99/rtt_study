@@ -13,7 +13,10 @@
 static struct kt_result g_r;
 
 static struct rt_mempool p_mp;
-static rt_uint32_t p_pool[MP_BLOCKS * MP_BLOCK_SIZE / sizeof(rt_uint32_t)];
+/* 每块还带 4 字节块头指针：内核在块前藏一个指回池的指针
+   （mempool.c:116 total = size/(block_size+sizeof(void*))，:426-427 靠它从块反查池），
+   池总字节 = 块数 × (块大小 + 4) */
+static rt_uint32_t p_pool[MP_BLOCKS * (MP_BLOCK_SIZE + sizeof(rt_uint8_t *)) / sizeof(rt_uint32_t)];
 static struct rt_semaphore p_done;  /* child -> main: 完成 */
 static volatile rt_err_t p_child_ok = 0;
 static void *p_child_block = RT_NULL;
@@ -30,14 +33,16 @@ static void p_worker(void *p)
 
 void kt_mp_test(void)
 {
-    void *blk[MP_BLOCKS];
+    void *blk[MP_BLOCKS] = {0};   /* 必须置零：归还循环只 free 非 NULL 块，防复跑时残留陈旧指针 double-free */
     rt_thread_t tid;
     rt_err_t err;
     int i;
 
     kt_result_init(&g_r, "mp");
 
-    err = rt_mp_init(&p_mp, "kt_mp1", p_pool, MP_BLOCKS, MP_BLOCK_SIZE);
+    /* 第 4 参是池总字节数而非块数（mempool.c:116）；此前误传块数 16 → 16/(32+4)=0 块，
+       后续 alloc 全 NULL（9/17 的根因） */
+    err = rt_mp_init(&p_mp, "kt_mp1", p_pool, sizeof(p_pool), MP_BLOCK_SIZE);
     KT_CHECK(&g_r, err == RT_EOK, "rt_mp_init");
     KT_CHECK(&g_r, p_mp.block_total_count == MP_BLOCKS, "block_total == 16");
     KT_CHECK(&g_r, p_mp.block_free_count == MP_BLOCKS, "block_free == 16");

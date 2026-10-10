@@ -6,7 +6,8 @@
  * 启动即自动跑批次①全部内核对象组件测试，结论走 RTT（RTT Viewer 查看）：
  *  - 各组件明细: [KT][xxx] PASS/FAIL ...（rtt_manager.h 开关区 KT_XXX_PRINT_EN 可关）
  *  - 结论总表:   [KT][RESULT] <组件> PASS/FAIL n/n + [KT][SUMMARY]（MAIN_D_SYNC 防丢）
- * msh(uart4) 里可用 kt_list / kt_<组件> / kt_all 重复执行。
+ * msh 命令（MSH_RTT_EN=1 时经 RTT Viewer Terminal，=0 时经 uart4）：
+ * kt_list / kt_<组件> / kt_all / kt_diag。
  */
 #include <rtthread.h>
 #include "rtt_manager.h"
@@ -17,7 +18,7 @@
 int main(void)
 {
     MAIN_D_SYNC("=== RT-Thread components_test fw (%s %s) ===", __DATE__, __TIME__);
-    MAIN_D_SYNC("log -> RTT Viewer, cmd -> uart4 msh, 'kt_list' to re-run");
+    MAIN_D_SYNC("log+cmd -> RTT Viewer (msh on RTT ch0), type 'kt_list' to re-run");
 
     kt_thread_test();
     kt_sem_test();
@@ -31,6 +32,10 @@ int main(void)
     kt_idle_test();
 
     kt_summary_print();     /* 组件成功与否总表（防丢打印） */
+
+    /* 开机自动转储调度器/全线程：msh 未通期间收集 tshell 证据（stat/mask/栈哨兵）；
+       msh 调通后可用 kt_diag 命令复跑，此处可删 */
+    kt_diag_dump("boot-end");
 
     return 0;
 }

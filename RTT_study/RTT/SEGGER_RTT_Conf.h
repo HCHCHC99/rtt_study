@@ -96,7 +96,7 @@ Revision: $Rev: 23635 $
 #endif
 
 #ifndef   BUFFER_SIZE_DOWN
-  #define BUFFER_SIZE_DOWN                          (16)    // Size of the buffer for terminal input to target from host (Usually keyboard input) (Default: 16)
+  #define BUFFER_SIZE_DOWN                          (64)    // Size of the buffer for terminal input to target from host (Usually keyboard input) (Default: 16; 64: msh 经 RTT 下行输入，留粘贴余量)
 #endif
 
 #ifndef   SEGGER_RTT_PRINTF_BUFFER_SIZE

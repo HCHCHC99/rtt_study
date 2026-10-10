@@ -45,6 +45,10 @@
 #define KT_HEAP_PRINT_EN        1   /* 组件测试：堆（[KT][heap]） */
 #define KT_TIMER_PRINT_EN       1   /* 组件测试：硬定时器（[KT][timer]） */
 #define KT_IDLE_PRINT_EN        1   /* 组件测试：空闲钩子（[KT][idle]） */
+
+/* ---- msh 输入源选择（功能开关，非打印；msh_rtt.c 使用，改后需重编译） ---- */
+#define MSH_RTT_EN              1   /* 1=msh 输入绑 RTT 下行通道0（RTT Viewer Terminal 可敲命令）；0=维持 uart4 串口 */
+
 /* ===================== 各模块打印宏封装 ===================== */
 #if SYS_STATE_PRINT_EN
 #define SYS_STATE_PRINT(fmt, ...)   MAIN_D("[SYS_STATE] " fmt, ##__VA_ARGS__)

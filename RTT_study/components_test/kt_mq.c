@@ -17,7 +17,11 @@ struct kt_msg
 static struct kt_result g_r;
 
 static struct rt_messagequeue q_mq;
-static rt_uint8_t q_pool[MQ_POOL_MSGS * sizeof(struct kt_msg)];
+/* 4.x 每条消息额外占一个消息头：ipc.c:2438 struct rt_mq_message 仅 1 个 next 指针
+   （该结构定义在 ipc.c 内部，此处用 sizeof(void*) 等价），:2514
+   max_msgs = pool_size/(msg_size+4)。池按 净载荷+头 计算：
+   此前 32/(8+4)=2 而非 4，导致 entry==max_msgs 与 FIFO 两项 FAIL */
+static rt_uint8_t q_pool[MQ_POOL_MSGS * (sizeof(struct kt_msg) + sizeof(void *))];
 
 static rt_err_t q_put(struct rt_messagequeue *mq,
                       rt_uint32_t id, rt_uint32_t data)

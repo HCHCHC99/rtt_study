@@ -24,9 +24,9 @@
 #endif
 
 /* ---------- 统一常量 ---------- */
-#define KT_PRIO_HIGH        24      /* 数值比 20(tshell) 大 = 更低 urgency，不抢 msh */
-#define KT_PRIO_MID         26
-#define KT_PRIO_LOW         28
+#define KT_PRIO_HIGH        17      /* 全部 ≤19：比 tshell(20) 更紧急，防 20+ 线程异常时饿死测试线程 */
+#define KT_PRIO_MID         18      /* 仍 >10(main)：测试子线程只在 main 阻塞时运行，保持原时序假设 */
+#define KT_PRIO_LOW         19
 #define KT_STACK_SMALL      1024    /* 字节 */
 #define KT_TIMEOUT_2S       (RT_TICK_PER_SECOND * 2)
 
@@ -88,5 +88,8 @@ void kt_mp_test(void);
 void kt_heap_test(void);
 void kt_timer_test(void);
 void kt_idle_test(void);
+
+/* ---------- 调度诊断（kt_diag.c）：线程饿死/TCB 被踩排查 ---------- */
+void kt_diag_dump(const char *tag);
 
 #endif /* __KT_COMMON_H__ */

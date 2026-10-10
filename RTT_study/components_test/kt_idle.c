@@ -38,8 +38,13 @@ void kt_idle_test(void)
 
     err = rt_thread_idle_delhook(i_hook);
     KT_CHECK(&g_r, err == RT_EOK, "rt_thread_idle_delhook");
+    /* 竞态：delhook 清表的瞬间 idle 可能已过查表点、自增落在主线程采样之后，
+       单窗口等值判定偶发误报（前两次开机 PASS 本次 FAIL 即此因）。
+       改为双样本：样本1 只吸收在途增量，用样本2 之后的窗口判定 */
     n = i_count;
-    rt_thread_mdelay(100);
+    rt_thread_mdelay(50);
+    n = i_count;
+    rt_thread_mdelay(50);
     KT_CHECK(&g_r, i_count == n, "hook stopped after delhook");
 
     kt_result_report(&g_r);
